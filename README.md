@@ -1,0 +1,2 @@
+# 主程序是run_analysis.py
+# 例如运行`python run_analysis.py --model microsoft/deberta-v2-xlarge-mnli --premise "Michael Jordan was an American professional basketball player." --hypothesis "Michael Jordan was an American professional football player." --numerical-tokens football --samples 5 --output-dir results/jordan_short_notnumber_h`，其中numerical不仅可以用来向数字加噪声还可以向任意token加噪声，单纯参数名先取成`--numerical-tokens`这样了。`--samples`是取多少组不同噪声，每组都进行因果追踪，结果取平均，所以该参数越大运行越慢

@@ -1,0 +1,16 @@
+---
+  # Result files for entailment analysis
+  ENTAILMENT_RESULTS_DIR: "entailment_results"
+
+  # Data files for entailment experiments  
+  ENTAILMENT_DATA_DIR: "entailment_data"
+  ENTAILMENT_STATS_DIR: "entailment_data/stats"
+
+  # Hyperparameters for entailment models
+  ENTAILMENT_HPARAMS_DIR: "entailment_hparams"
+
+  # Cache directory for model statistics
+  ENTAILMENT_CACHE_DIR: "entailment_cache"
+
+  # Visualization output
+  ENTAILMENT_VIZ_DIR: "entailment_visualizations"
