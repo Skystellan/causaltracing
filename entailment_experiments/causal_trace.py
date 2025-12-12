@@ -335,7 +335,7 @@ def plot_trace_heatmap(result, savepdf=None, savepng=None, title=None, xlabel=No
     """
     differences = result["scores"]
     low_score = result["low_score"]
-    answer = result["answer"]
+    answer = result.get("target_label") or result.get("answer")
     kind = (
         None
         if (not result["kind"] or result["kind"] == "None")
@@ -368,22 +368,23 @@ def plot_trace_heatmap(result, savepdf=None, savepng=None, title=None, xlabel=No
     with plt.rc_context(rc={"font.family": "Times New Roman"}):
         # Dynamic figure size based on number of tokens - handle extreme cases
         num_tokens = len(labels)
+        num_layers = int(differences.shape[1])
         if num_tokens <= 15:
             # Short sequences: use original scaling
             height = max(2, 2 + (num_tokens - 10) * 0.15)
-            width = 3.5
+            width = max(5.0, num_layers * 0.3)
         elif num_tokens <= 30:
             # Medium sequences: more generous scaling
             height = 3 + (num_tokens - 15) * 0.2
-            width = 4.0
+            width = max(5.0, num_layers * 0.3)
         elif num_tokens <= 100:
             # Long sequences: aggressive scaling
             height = 6 + (num_tokens - 30) * 0.3
-            width = min(6.0, 4.0 + (num_tokens - 30) * 0.03)
+            width = max(5.0, num_layers * 0.3)
         else:
             # Extreme sequences (like 512 tokens): very aggressive scaling
             height = max(25, num_tokens * 0.12)  # At least 0.12 inches per token
-            width = min(8.0, 5.0 + (num_tokens - 100) * 0.01)
+            width = max(5.0, num_layers * 0.3)
         # Set reasonable limits but allow for very tall images when needed
         height = min(height, 80)  # Maximum 80 inches tall
         width = max(width, 3.5)   # Minimum 3.5 inches wide
@@ -477,6 +478,8 @@ def plot_hidden_flow(
     savepdf=None,
     savepng=None,
     expect=None,
+    target_label=None,
+    debug_hooks=False,
 ):
     """
     Plot causal trace for entailment model.
@@ -507,6 +510,8 @@ def plot_hidden_flow(
         window=window,
         kind=kind,
         expect=expect,
+        target_label=target_label,
+        debug_hooks=debug_hooks,
     )
     plot_trace_heatmap(result, savepdf=savepdf, savepng=savepng)
 

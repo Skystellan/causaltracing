@@ -27,6 +27,17 @@ def main():
                        help="输出目录")
     parser.add_argument("--format", choices=["png", "pdf"], default="png",
                        help="输出格式 (默认: png)")
+    parser.add_argument(
+        "--target-label",
+        choices=["contradiction", "entailment", "neutral"],
+        default="contradiction",
+        help="热力图/因果追踪追踪的目标类别概率 (默认: contradiction)",
+    )
+    parser.add_argument(
+        "--debug-hooks",
+        action="store_true",
+        help="打印 hook 的层名与张量 shape（用于排查维度/未触发 patch 等问题）",
+    )
     
     args = parser.parse_args()
     
@@ -38,7 +49,10 @@ def main():
     try:
         mt = EntailmentModelAndTokenizer(args.model)
         print(f"✅ Model loaded successfully!")
-        print(f"   Architecture: {mt.model.config.model_type}")
+        print(f"   Model ID: {args.model}")
+        print(f"   config.model_type: {mt.model.config.model_type}")
+        print(f"   config.architectures: {getattr(mt.model.config, 'architectures', None)}")
+        print(f"   config.id2label: {getattr(mt.model.config, 'id2label', None)}")
         print(f"   Layers: {mt.num_layers}")
     except Exception as e:
         print(f"❌ Error loading model: {e}")
@@ -50,6 +64,8 @@ def main():
     print(f"   数值tokens: {args.numerical_tokens}")
     print(f"   噪声样本: {args.samples}")
     print(f"   噪声水平: {args.noise}")
+    print(f"   目标类别: {args.target_label}")
+    print(f"   Debug hooks: {args.debug_hooks}")
     print(f"   输出格式: {args.format.upper()}")
     
     # 创建输出目录
@@ -79,6 +95,8 @@ def main():
                     samples=args.samples,
                     noise=args.noise,
                     kind=kind,
+                    target_label=args.target_label,
+                    debug_hooks=args.debug_hooks,
                     savepng=str(output_file)
                 )
             else:  # PDF
@@ -91,6 +109,8 @@ def main():
                     samples=args.samples,
                     noise=args.noise,
                     kind=kind,
+                    target_label=args.target_label,
+                    debug_hooks=args.debug_hooks,
                     savepdf=str(output_file)
                 )
             

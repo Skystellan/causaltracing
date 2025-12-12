@@ -54,27 +54,47 @@ def find_all_numerical_positions(tokenizer, token_array, numerical_tokens):
     
     # Decode all tokens to strings
     toks = decode_tokens(tokenizer, token_array)
-    
-    positions = []
-    for i, token in enumerate(toks):
-        token_clean = token.strip()
-        for num_token in numerical_tokens:
-            # Try exact match first
-            if num_token == token_clean:
-                positions.append(i)
+
+    # Build a concatenated string and token character offsets.
+    # This is robust to models that split numbers into multiple subtokens.
+    whole_string = "".join(toks)
+    offsets = []
+    loc = 0
+    for t in toks:
+        start = loc
+        loc += len(t)
+        offsets.append((start, loc))
+
+    def _token_indices_for_char_span(char_start: int, char_end: int):
+        idxs = []
+        for i, (s, e) in enumerate(offsets):
+            if e <= char_start:
+                continue
+            if s >= char_end:
                 break
-            # Try fuzzy match - check if the numerical token is contained in the token
-            # This handles cases like "1934." containing "1934"
-            elif num_token in token_clean:
-                # Additional validation: ensure it's actually the number we're looking for
-                # Extract just the numerical part from the token
-                import re
-                numbers_in_token = re.findall(r'\d+', token_clean)
-                if num_token in numbers_in_token:
-                    positions.append(i)
-                    break
-    
-    return positions
+            idxs.append(i)
+        return idxs
+
+    positions = set()
+    for num_token in numerical_tokens:
+        needle = str(num_token)
+        if not needle:
+            continue
+        search_from = 0
+        while True:
+            char_loc = whole_string.find(needle, search_from)
+            if char_loc == -1:
+                break
+            span_idxs = _token_indices_for_char_span(char_loc, char_loc + len(needle))
+            for i in span_idxs:
+                # Skip special tokens
+                tok_clean = toks[i].strip()
+                if tok_clean == "" or tok_clean in (tokenizer.cls_token, tokenizer.sep_token, tokenizer.pad_token):
+                    continue
+                positions.add(i)
+            search_from = char_loc + 1
+
+    return sorted(positions)
 
 
 def auto_detect_numerical_range(tokenizer, token_array):

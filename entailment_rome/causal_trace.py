@@ -55,6 +55,7 @@ def trace_with_patch(
     uniform_noise=False,
     replace=False,  # True to replace with instead of add noise
     trace_layers=None,  # List of traced outputs to return
+    debug_hooks=False,
 ):
     """
     Runs a single causal trace for entailment models. Given a model and a batch input where
@@ -97,6 +98,17 @@ def trace_with_patch(
     else:
         noise_fn = noise
 
+    _printed = set()
+
+    def _shape_str(val):
+        try:
+            h = untuple(val)
+            if isinstance(h, torch.Tensor):
+                return str(tuple(h.shape))
+        except Exception:
+            pass
+        return str(type(val))
+
     def patch_rep(x, layer):
         if layer == embed_layername:
             # If requested, we corrupt a range of token embeddings on batch items x[1:]
@@ -109,12 +121,19 @@ def trace_with_patch(
                     x[1:, b:e] = noise_data
                 else:
                     x[1:, b:e] += noise_data
+            if debug_hooks and layer not in _printed:
+                _printed.add(layer)
+                b, e = tokens_to_mix if tokens_to_mix is not None else (None, None)
+                print(f"[debug-hooks] layer={layer} output_shape={_shape_str(x)} corrupt_tokens={b}:{e}")
             return x
         if layer not in patch_spec:
             return x
         # If this layer is in the patch_spec, restore the uncorrupted hidden state
         # for selected tokens.
         h = untuple(x)
+        if debug_hooks and layer not in _printed:
+            _printed.add(layer)
+            print(f"[debug-hooks] layer={layer} output_shape={_shape_str(x)} patch_tokens={patch_spec[layer]}")
         for t in patch_spec[layer]:
             h[1:, t] = h[0, t]
         return x
@@ -223,6 +242,7 @@ def trace_important_states(
     uniform_noise=False,
     replace=False,
     token_range=None,
+    debug_hooks=False,
 ):
     """
     Trace the importance of individual states across all layers and tokens.
@@ -246,6 +266,7 @@ def trace_important_states(
                 noise=noise,
                 uniform_noise=uniform_noise,
                 replace=replace,
+                debug_hooks=debug_hooks,
             )
             row.append(r)
         table.append(torch.stack(row))
@@ -264,6 +285,7 @@ def trace_important_window(
     uniform_noise=False,
     replace=False,
     token_range=None,
+    debug_hooks=False,
 ):
     """
     Trace the importance of windowed states across layers.
@@ -293,6 +315,7 @@ def trace_important_window(
                 noise=noise,
                 uniform_noise=uniform_noise,
                 replace=replace,
+                debug_hooks=debug_hooks,
             )
             row.append(r)
         table.append(torch.stack(row))
@@ -312,6 +335,8 @@ def calculate_hidden_flow(
     window=10,
     kind=None,
     expect=None,
+    target_label=None,
+    debug_hooks=False,
 ):
     """
     Runs causal tracing over every token/layer combination in the entailment network
@@ -347,13 +372,50 @@ def calculate_hidden_flow(
     # Create inputs - replicate the premise-hypothesis pair for batch processing
     inp = make_inputs(mt.tokenizer, [(premise, hypothesis)] * (samples + 1))
     
+    # Prefer the model's own label mapping when available.
+    # Different MNLI checkpoints may permute label ids.
+    def _normalize_label_name(name: str) -> str:
+        return str(name).strip().lower()
+
+    config_id2label = getattr(getattr(mt, "model", None), "config", None)
+    config_id2label = getattr(config_id2label, "id2label", None)
+    config_label2id = getattr(getattr(mt, "model", None), "config", None)
+    config_label2id = getattr(config_label2id, "label2id", None)
+
+    label_map = None
+    label_to_id = None
+    if isinstance(config_id2label, dict) and len(config_id2label) >= 3:
+        try:
+            label_map = {int(k): _normalize_label_name(v) for k, v in config_id2label.items()}
+        except Exception:
+            label_map = None
+    if isinstance(config_label2id, dict) and len(config_label2id) >= 3:
+        try:
+            label_to_id = {_normalize_label_name(k): int(v) for k, v in config_label2id.items()}
+        except Exception:
+            label_to_id = None
+
+    # Fallback mapping (common, but not guaranteed)
+    if label_map is None or label_to_id is None:
+        label_map = {0: "contradiction", 1: "entailment", 2: "neutral"}
+        label_to_id = {v: k for k, v in label_map.items()}
+
     with torch.no_grad():
-        answer_t, base_score = [d[0] for d in predict_from_input(mt.model, inp)]
-    
-    # Decode the predicted answer
-    # For entailment models: 0=contradiction, 1=entailment, 2=neutral (typically)
-    label_map = {0: "contradiction", 1: "entailment", 2: "neutral"}
-    answer = label_map.get(answer_t.item(), f"class_{answer_t.item()}")
+        pred_label_id, base_score = [d[0] for d in predict_from_input(mt.model, inp)]
+
+    # Select which class probability to track in causal tracing.
+    # Default to contradiction to match typical numerical inconsistency probes.
+    if target_label is None:
+        target_label = "contradiction"
+    target_label = _normalize_label_name(target_label)
+    if target_label not in label_to_id:
+        raise ValueError(
+            f"Unknown target_label: {target_label}. Expected one of {sorted(label_to_id.keys())}"
+        )
+    target_label_id = torch.tensor(label_to_id[target_label], device=pred_label_id.device)
+
+    # Decode the predicted answer (for reporting only)
+    answer = label_map.get(pred_label_id.item(), f"class_{pred_label_id.item()}")
     
     # Check if prediction matches expectation
     if expect is not None and answer.strip() != expect:
@@ -378,7 +440,14 @@ def calculate_hidden_flow(
     
     # Measure performance with full corruption (no restoration)
     low_score = trace_with_patch(
-        mt.model, inp, [], answer_t, e_range, noise=noise, uniform_noise=uniform_noise
+        mt.model,
+        inp,
+        [],
+        target_label_id,
+        e_range,
+        noise=noise,
+        uniform_noise=uniform_noise,
+        debug_hooks=debug_hooks,
     ).item()
     
     # Perform systematic causal tracing
@@ -388,11 +457,12 @@ def calculate_hidden_flow(
             mt.num_layers,
             inp,
             e_range,
-            answer_t,
+            target_label_id,
             noise=noise,
             uniform_noise=uniform_noise,
             replace=replace,
             token_range=token_range,
+            debug_hooks=debug_hooks,
         )
     else:
         restored_scores = trace_important_window(
@@ -400,13 +470,14 @@ def calculate_hidden_flow(
             mt.num_layers,
             inp,
             e_range,
-            answer_t,
+            target_label_id,
             noise=noise,
             uniform_noise=uniform_noise,
             replace=replace,
             window=window,
             kind=kind,
             token_range=token_range,
+            debug_hooks=debug_hooks,
         )
     
     # Calculate the actual differences: restored_score - corrupted_baseline
@@ -422,6 +493,7 @@ def calculate_hidden_flow(
         numerical_range=e_range,
         numerical_positions=numerical_positions,
         answer=answer,
+        target_label=target_label,
         window=window,
         correct_prediction=True,
         kind=kind or "",

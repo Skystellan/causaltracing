@@ -149,7 +149,7 @@ def layername(model, num, kind=None):
         elif kind == "attn":
             return f"deberta.encoder.layer.{num}.attention"
         elif kind == "mlp":
-            return f"deberta.encoder.layer.{num}.intermediate"
+            return f"deberta.encoder.layer.{num}.output.dense"
         else:
             # Full layer
             return f"deberta.encoder.layer.{num}"
@@ -160,7 +160,7 @@ def layername(model, num, kind=None):
         elif kind == "attn":
             return f"roberta.encoder.layer.{num}.attention"
         elif kind == "mlp":
-            return f"roberta.encoder.layer.{num}.intermediate"
+            return f"roberta.encoder.layer.{num}.output.dense"
         else:
             # Full layer
             return f"roberta.encoder.layer.{num}"
@@ -171,7 +171,7 @@ def layername(model, num, kind=None):
         elif kind == "attn":
             return f"bert.encoder.layer.{num}.attention"
         elif kind == "mlp":
-            return f"bert.encoder.layer.{num}.intermediate"
+            return f"bert.encoder.layer.{num}.output.dense"
         else:
             # Full layer
             return f"bert.encoder.layer.{num}"
@@ -185,7 +185,7 @@ def layername(model, num, kind=None):
             elif kind == "attn":
                 return f"deberta.encoder.layer.{num}.attention"
             elif kind == "mlp":
-                return f"deberta.encoder.layer.{num}.intermediate"
+                return f"deberta.encoder.layer.{num}.output.dense"
             else:
                 return f"deberta.encoder.layer.{num}"
         elif "roberta" in model_class:
@@ -194,7 +194,7 @@ def layername(model, num, kind=None):
             elif kind == "attn":
                 return f"roberta.encoder.layer.{num}.attention"
             elif kind == "mlp":
-                return f"roberta.encoder.layer.{num}.intermediate"
+                return f"roberta.encoder.layer.{num}.output.dense"
             else:
                 return f"roberta.encoder.layer.{num}"
         elif "bert" in model_class:
@@ -203,7 +203,7 @@ def layername(model, num, kind=None):
             elif kind == "attn":
                 return f"bert.encoder.layer.{num}.attention"
             elif kind == "mlp":
-                return f"bert.encoder.layer.{num}.intermediate"
+                return f"bert.encoder.layer.{num}.output.dense"
             else:
                 return f"bert.encoder.layer.{num}"
         else:
