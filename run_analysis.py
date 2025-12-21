@@ -10,46 +10,35 @@ from entailment_rome.entailment_model import EntailmentModelAndTokenizer
 from entailment_experiments.causal_trace import plot_hidden_flow
 
 def main():
-    parser = argparse.ArgumentParser(description="运行因果追踪分析并生成 PNG 图片")
-    parser.add_argument("--model", default="microsoft/deberta-base-mnli", 
-                       help="模型名称 (默认: deberta-base-mnli)")
-    parser.add_argument("--premise", default="He was born in 1934.", 
-                       help="前提句子")
-    parser.add_argument("--hypothesis", default="He was born in 1935.", 
-                       help="假设句子")
-    parser.add_argument("--numerical-tokens", nargs="+", default=["1934", "1935"],
-                       help="数值 tokens")
-    parser.add_argument("--samples", type=int, default=10, 
-                       help="噪声样本数量")
-    parser.add_argument("--noise", type=float, default=0.1, 
-                       help="噪声水平")
-    parser.add_argument("--output-dir", default="results/png_analysis", 
-                       help="输出目录")
-    parser.add_argument("--format", choices=["png", "pdf"], default="png",
-                       help="输出格式 (默认: png)")
-    parser.add_argument(
-        "--target-label",
-        choices=["contradiction", "entailment", "neutral"],
-        default="contradiction",
-        help="热力图/因果追踪追踪的目标类别概率 (默认: contradiction)",
-    )
-    parser.add_argument(
-        "--debug-hooks",
-        action="store_true",
-        help="打印 hook 的层名与张量 shape（用于排查维度/未触发 patch 等问题）",
-    )
+    # 直接在代码中定义输入，避免命令行转义问题
+    premise = """She performed in Satan."""
+    hypothesis = """She performed in Satan"""
+    premise_noise_tokens = ["Satan"]
+    hypothesis_noise_tokens = []
+    samples = 5
+    noise = 0.1
+    output_dir = "results/Satan_Satan"
+    format_type = "png"
+    target_label = "entailment"
+    debug_hooks = False
+    debug_tokens = False
+    # model = "microsoft/deberta-v2-xlarge-mnli"
+    model = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
+    # 如果需要命令行覆盖，可以取消注释下面的代码
+    # parser = argparse.ArgumentParser(description="运行因果追踪分析并生成 PNG 图片")
+    # ... (其余argparse代码保持不变，但注释掉)
+    # args = parser.parse_args()
+    # 然后用args.xxx替换上面的变量
     
-    args = parser.parse_args()
-    
-    print(f"🚀 因果追踪分析 - {args.format.upper()} 格式")
+    print(f"🚀 因果追踪分析 - {format_type.upper()} 格式")
     print("=" * 50)
     
-    print(f"📥 Loading model: {args.model}")
+    print(f"📥 Loading model: {model}")
     
     try:
-        mt = EntailmentModelAndTokenizer(args.model)
+        mt = EntailmentModelAndTokenizer(model)
         print(f"✅ Model loaded successfully!")
-        print(f"   Model ID: {args.model}")
+        print(f"   Model ID: {model}")
         print(f"   config.model_type: {mt.model.config.model_type}")
         print(f"   config.architectures: {getattr(mt.model.config, 'architectures', None)}")
         print(f"   config.id2label: {getattr(mt.model.config, 'id2label', None)}")
@@ -59,18 +48,20 @@ def main():
         return 1
     
     print(f"\n🔍 分析配置:")
-    print(f"   Premise: {args.premise}")
-    print(f"   Hypothesis: {args.hypothesis}")
-    print(f"   数值tokens: {args.numerical_tokens}")
-    print(f"   噪声样本: {args.samples}")
-    print(f"   噪声水平: {args.noise}")
-    print(f"   目标类别: {args.target_label}")
-    print(f"   Debug hooks: {args.debug_hooks}")
-    print(f"   输出格式: {args.format.upper()}")
+    print(f"   Premise: {premise}")
+    print(f"   Hypothesis: {hypothesis}")
+    print(f"   Premise Noise Tokens: {premise_noise_tokens}")
+    print(f"   Hypothesis Noise Tokens: {hypothesis_noise_tokens}")
+    print(f"   噪声样本: {samples}")
+    print(f"   噪声水平: {noise}")
+    print(f"   目标类别: {target_label}")
+    print(f"   Debug hooks: {debug_hooks}")
+    print(f"   Debug tokens: {debug_tokens}")
+    print(f"   输出格式: {format_type.upper()}")
     
     # 创建输出目录
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir_path = Path(output_dir)
+    output_dir_path.mkdir(parents=True, exist_ok=True)
     
     # 分析列表
     analyses = [
@@ -79,38 +70,42 @@ def main():
         ("Attention Components", "attn", "Attention组件分析")
     ]
     
-    print(f"\n🎨 生成 {args.format.upper()} 热力图...")
+    print(f"\n🎨 生成 {format_type.upper()} 热力图...")
     
     for analysis_name, kind, description in analyses:
         print(f"   📊 {analysis_name}...")
         
         try:
-            if args.format == "png":
-                output_file = output_dir / f"causal_trace_{kind or 'all'}.png"
+            if format_type == "png":
+                output_file = output_dir_path / f"causal_trace_{kind or 'all'}.png"
                 plot_hidden_flow(
                     mt=mt,
-                    premise=args.premise,
-                    hypothesis=args.hypothesis,
-                    numerical_tokens=args.numerical_tokens,
-                    samples=args.samples,
-                    noise=args.noise,
+                    premise=premise,
+                    hypothesis=hypothesis,
+                    premise_noise_tokens=premise_noise_tokens,
+                    hypothesis_noise_tokens=hypothesis_noise_tokens,
+                    samples=samples,
+                    noise=noise,
                     kind=kind,
-                    target_label=args.target_label,
-                    debug_hooks=args.debug_hooks,
+                    target_label=target_label,
+                    debug_hooks=debug_hooks,
+                    debug_tokens=debug_tokens,
                     savepng=str(output_file)
                 )
             else:  # PDF
-                output_file = output_dir / f"causal_trace_{kind or 'all'}.pdf"
+                output_file = output_dir_path / f"causal_trace_{kind or 'all'}.pdf"
                 plot_hidden_flow(
                     mt=mt,
-                    premise=args.premise,
-                    hypothesis=args.hypothesis,
-                    numerical_tokens=args.numerical_tokens,
-                    samples=args.samples,
-                    noise=args.noise,
+                    premise=premise,
+                    hypothesis=hypothesis,
+                    premise_noise_tokens=premise_noise_tokens,
+                    hypothesis_noise_tokens=hypothesis_noise_tokens,
+                    samples=samples,
+                    noise=noise,
                     kind=kind,
-                    target_label=args.target_label,
-                    debug_hooks=args.debug_hooks,
+                    target_label=target_label,
+                    debug_hooks=debug_hooks,
+                    debug_tokens=debug_tokens,
                     savepdf=str(output_file)
                 )
             
@@ -122,7 +117,7 @@ def main():
             continue
     
     print(f"\n🎉 分析完成!")
-    print(f"📁 所有文件保存在: {output_dir}")
+    print(f"📁 所有文件保存在: {output_dir_path}")
 
 if __name__ == "__main__":
     exit(main())

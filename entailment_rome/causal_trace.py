@@ -51,11 +51,13 @@ def trace_with_patch(
     states_to_patch,  # A list of (token index, layername) triples to restore
     answers_t,  # Target entailment class indices to collect probabilities for
     tokens_to_mix,  # Range of tokens to corrupt (begin, end) - typically numerical tokens
+    tokenizer=None,  # Optional tokenizer for debug decoding
     noise=0.1,  # Level of noise to add
     uniform_noise=False,
     replace=False,  # True to replace with instead of add noise
     trace_layers=None,  # List of traced outputs to return
     debug_hooks=False,
+    debug_tokens=False,
 ):
     """
     Runs a single causal trace for entailment models. Given a model and a batch input where
@@ -99,6 +101,7 @@ def trace_with_patch(
         noise_fn = noise
 
     _printed = set()
+    _printed_tokens = False
 
     def _shape_str(val):
         try:
@@ -110,21 +113,49 @@ def trace_with_patch(
         return str(type(val))
 
     def patch_rep(x, layer):
+        nonlocal _printed_tokens
         if layer == embed_layername:
             # If requested, we corrupt a range of token embeddings on batch items x[1:]
             if tokens_to_mix is not None:
-                b, e = tokens_to_mix
-                noise_data = noise_fn(
-                    torch.from_numpy(prng(x.shape[0] - 1, e - b, x.shape[2]))
-                ).to(x.device)
-                if replace:
-                    x[1:, b:e] = noise_data
+                if isinstance(tokens_to_mix, list):
+                    # Handle discrete list of token indices
+                    for t_idx in tokens_to_mix:
+                        noise_data = noise_fn(
+                            torch.from_numpy(prng(x.shape[0] - 1, 1, x.shape[2]))
+                        ).to(x.device)
+                        if replace:
+                            x[1:, t_idx:t_idx+1] = noise_data
+                        else:
+                            x[1:, t_idx:t_idx+1] += noise_data
                 else:
-                    x[1:, b:e] += noise_data
+                    # Handle range tuple (start, end)
+                    b, e = tokens_to_mix
+                    noise_data = noise_fn(
+                        torch.from_numpy(prng(x.shape[0] - 1, e - b, x.shape[2]))
+                    ).to(x.device)
+                    if replace:
+                        x[1:, b:e] = noise_data
+                    else:
+                        x[1:, b:e] += noise_data
             if debug_hooks and layer not in _printed:
                 _printed.add(layer)
                 b, e = tokens_to_mix if tokens_to_mix is not None else (None, None)
                 print(f"[debug-hooks] layer={layer} output_shape={_shape_str(x)} corrupt_tokens={b}:{e}")
+            if debug_tokens and not _printed_tokens:
+                _printed_tokens = True
+                b, e = tokens_to_mix if tokens_to_mix is not None else (None, None)
+                span_text = None
+                try:
+                    token_ids = inp.get("input_ids")
+                    if token_ids is not None and b is not None and e is not None:
+                        span_ids = token_ids[0, b:e].detach().cpu().tolist()
+                        if tokenizer is not None and hasattr(tokenizer, "decode"):
+                            span_text = tokenizer.decode(span_ids, skip_special_tokens=False)
+                        else:
+                            span_text = "<no-tokenizer-provided>"
+                except Exception:
+                    span_text = None
+                print(f"[debug-tokens] corrupt_tokens={b}:{e} span_text={repr(span_text)}")
             return x
         if layer not in patch_spec:
             return x
@@ -238,11 +269,13 @@ def trace_important_states(
     inp,
     e_range,
     answer_t,
+    tokenizer=None,
     noise=0.1,
     uniform_noise=False,
     replace=False,
     token_range=None,
     debug_hooks=False,
+    debug_tokens=False,
 ):
     """
     Trace the importance of individual states across all layers and tokens.
@@ -263,10 +296,12 @@ def trace_important_states(
                 [(tnum, layername(model, layer))],
                 answer_t,
                 tokens_to_mix=e_range,
+                tokenizer=tokenizer,
                 noise=noise,
                 uniform_noise=uniform_noise,
                 replace=replace,
                 debug_hooks=debug_hooks,
+                debug_tokens=debug_tokens,
             )
             row.append(r)
         table.append(torch.stack(row))
@@ -280,12 +315,14 @@ def trace_important_window(
     e_range,
     answer_t,
     kind,
+    tokenizer=None,
     window=10,
     noise=0.1,
     uniform_noise=False,
     replace=False,
     token_range=None,
     debug_hooks=False,
+    debug_tokens=False,
 ):
     """
     Trace the importance of windowed states across layers.
@@ -312,10 +349,12 @@ def trace_important_window(
                 layerlist,
                 answer_t,
                 tokens_to_mix=e_range,
+                tokenizer=tokenizer,
                 noise=noise,
                 uniform_noise=uniform_noise,
                 replace=replace,
                 debug_hooks=debug_hooks,
+                debug_tokens=debug_tokens,
             )
             row.append(r)
         table.append(torch.stack(row))
@@ -326,7 +365,8 @@ def calculate_hidden_flow(
     mt,
     premise,
     hypothesis,
-    numerical_tokens=None,
+    premise_noise_tokens=None,
+    hypothesis_noise_tokens=None,
     samples=10,
     noise=0.1,
     token_range=None,
@@ -337,6 +377,7 @@ def calculate_hidden_flow(
     expect=None,
     target_label=None,
     debug_hooks=False,
+    debug_tokens=False,
 ):
     """
     Runs causal tracing over every token/layer combination in the entailment network
@@ -348,7 +389,8 @@ def calculate_hidden_flow(
         mt: EntailmentModelAndTokenizer instance
         premise: The premise sentence
         hypothesis: The hypothesis sentence  
-        numerical_tokens: List of numerical tokens to focus on (if None, auto-detect)
+        premise_noise_tokens: List of tokens to corrupt in the premise
+        hypothesis_noise_tokens: List of tokens to corrupt in the hypothesis
         samples: Number of noise samples to use
         noise: Noise level for corruption
         token_range: Specific token range to analyze
@@ -365,7 +407,8 @@ def calculate_hidden_flow(
         - high_score: Performance without corruption
         - input_ids: Token IDs
         - input_tokens: Decoded tokens
-        - numerical_range: Range of numerical tokens
+        - numerical_range: Range of numerical tokens (legacy)
+        - corrupted_positions: List of corrupted token positions
         - answer: Predicted entailment label
         - correct_prediction: Whether model prediction matches expectation
     """
@@ -422,21 +465,64 @@ def calculate_hidden_flow(
         return dict(correct_prediction=False)
     
     # Find numerical token range and positions
-    if numerical_tokens is not None:
-        e_range = find_numerical_range(mt.tokenizer, inp["input_ids"][0], numerical_tokens)
-        # Also get individual positions for precise marking
-        from .numerical_utils import find_all_numerical_positions
-        numerical_positions = find_all_numerical_positions(mt.tokenizer, inp["input_ids"][0], numerical_tokens)
+    tokens_to_corrupt = []
+    from .numerical_utils import find_all_numerical_positions
+    
+    # Find SEP token index to distinguish premise and hypothesis
+    sep_token_id = mt.tokenizer.sep_token_id
+    input_ids = inp["input_ids"][0]
+    sep_indices = (input_ids == sep_token_id).nonzero(as_tuple=True)[0]
+    
+    if len(sep_indices) > 0:
+        first_sep = sep_indices[0].item()
     else:
-        # Auto-detect numerical tokens
-        e_range = auto_detect_numerical_range(mt.tokenizer, inp["input_ids"][0])
-        numerical_positions = []
+        first_sep = len(input_ids)
+        
+    if premise_noise_tokens:
+        # Find tokens in the whole sequence
+        all_pos = find_all_numerical_positions(mt.tokenizer, input_ids, premise_noise_tokens)
+        # Filter for premise (before first SEP)
+        tokens_to_corrupt.extend([p for p in all_pos if p < first_sep])
+        
+    if hypothesis_noise_tokens:
+        # Find tokens in the whole sequence
+        all_pos = find_all_numerical_positions(mt.tokenizer, input_ids, hypothesis_noise_tokens)
+        # Filter for hypothesis (after first SEP)
+        tokens_to_corrupt.extend([p for p in all_pos if p > first_sep])
+    
+    # If neither is provided, fallback to auto-detection (legacy behavior) or empty?
+    # If both are None, we assume no corruption or auto-detect?
+    # Let's assume if both are None/Empty, we might want to auto-detect for backward compatibility 
+    # OR just corrupt nothing (which makes no sense for causal trace).
+    # But the user said "如果是空的就代表不对pre/hyp加任何噪声".
+    # So if both are empty, tokens_to_corrupt is empty.
+    
+    if not premise_noise_tokens and not hypothesis_noise_tokens:
+        # Fallback to auto-detect if nothing specified? Or just empty?
+        # The user implies explicit control. If they pass empty lists, they want no noise.
+        # But if they pass None (default), maybe we should auto-detect?
+        # Let's stick to explicit control. If None, treat as empty.
+        pass
+
+    tokens_to_corrupt = sorted(list(set(tokens_to_corrupt)))
+    
+    if tokens_to_corrupt:
+        e_range = (min(tokens_to_corrupt), max(tokens_to_corrupt) + 1)
+    else:
+        e_range = (0, 0)
     
     # Handle token_range specification
     if token_range == "numerical_last":
         token_range = [e_range[1] - 1]
     elif token_range is not None:
         raise ValueError(f"Unknown token_range: {token_range}")
+
+    if debug_tokens:
+        try:
+            print(f"[debug-tokens] premise_tokens={mt.tokenizer.tokenize(premise)}")
+            print(f"[debug-tokens] hypothesis_tokens={mt.tokenizer.tokenize(hypothesis)}")
+        except Exception:
+            pass
     
     # Measure performance with full corruption (no restoration)
     low_score = trace_with_patch(
@@ -444,10 +530,13 @@ def calculate_hidden_flow(
         inp,
         [],
         target_label_id,
-        e_range,
+        tokens_to_corrupt,
+        tokenizer=mt.tokenizer,
         noise=noise,
         uniform_noise=uniform_noise,
+        replace=replace,
         debug_hooks=debug_hooks,
+        debug_tokens=debug_tokens,
     ).item()
     
     # Perform systematic causal tracing
@@ -456,28 +545,32 @@ def calculate_hidden_flow(
             mt.model,
             mt.num_layers,
             inp,
-            e_range,
+            tokens_to_corrupt,
             target_label_id,
+            tokenizer=mt.tokenizer,
             noise=noise,
             uniform_noise=uniform_noise,
             replace=replace,
             token_range=token_range,
             debug_hooks=debug_hooks,
+            debug_tokens=debug_tokens,
         )
     else:
         restored_scores = trace_important_window(
             mt.model,
             mt.num_layers,
             inp,
-            e_range,
+            tokens_to_corrupt,
             target_label_id,
             noise=noise,
             uniform_noise=uniform_noise,
             replace=replace,
+            tokenizer=mt.tokenizer,
             window=window,
             kind=kind,
             token_range=token_range,
             debug_hooks=debug_hooks,
+            debug_tokens=debug_tokens,
         )
     
     # Calculate the actual differences: restored_score - corrupted_baseline
@@ -491,7 +584,7 @@ def calculate_hidden_flow(
         input_ids=inp["input_ids"][0],
         input_tokens=decode_tokens(mt.tokenizer, inp["input_ids"][0]),
         numerical_range=e_range,
-        numerical_positions=numerical_positions,
+        numerical_positions=tokens_to_corrupt,
         answer=answer,
         target_label=target_label,
         window=window,

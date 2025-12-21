@@ -147,7 +147,7 @@ def layername(model, num, kind=None):
         if kind == "embed":
             return "deberta.embeddings.word_embeddings"
         elif kind == "attn":
-            return f"deberta.encoder.layer.{num}.attention"
+            return f"deberta.encoder.layer.{num}.attention.output.dense"
         elif kind == "mlp":
             return f"deberta.encoder.layer.{num}.output.dense"
         else:
@@ -158,7 +158,7 @@ def layername(model, num, kind=None):
         if kind == "embed":
             return "roberta.embeddings.word_embeddings"
         elif kind == "attn":
-            return f"roberta.encoder.layer.{num}.attention"
+            return f"roberta.encoder.layer.{num}.attention.output.dense"
         elif kind == "mlp":
             return f"roberta.encoder.layer.{num}.output.dense"
         else:
@@ -169,7 +169,7 @@ def layername(model, num, kind=None):
         if kind == "embed":
             return "bert.embeddings.word_embeddings"
         elif kind == "attn":
-            return f"bert.encoder.layer.{num}.attention"
+            return f"bert.encoder.layer.{num}.attention.output.dense"
         elif kind == "mlp":
             return f"bert.encoder.layer.{num}.output.dense"
         else:
@@ -183,7 +183,7 @@ def layername(model, num, kind=None):
             if kind == "embed":
                 return "deberta.embeddings.word_embeddings"
             elif kind == "attn":
-                return f"deberta.encoder.layer.{num}.attention"
+                return f"deberta.encoder.layer.{num}.attention.output.dense"
             elif kind == "mlp":
                 return f"deberta.encoder.layer.{num}.output.dense"
             else:
@@ -192,7 +192,7 @@ def layername(model, num, kind=None):
             if kind == "embed":
                 return "roberta.embeddings.word_embeddings"
             elif kind == "attn":
-                return f"roberta.encoder.layer.{num}.attention"
+                return f"roberta.encoder.layer.{num}.attention.output.dense"
             elif kind == "mlp":
                 return f"roberta.encoder.layer.{num}.output.dense"
             else:
@@ -201,7 +201,7 @@ def layername(model, num, kind=None):
             if kind == "embed":
                 return "bert.embeddings.word_embeddings"
             elif kind == "attn":
-                return f"bert.encoder.layer.{num}.attention"
+                return f"bert.encoder.layer.{num}.attention.output.dense"
             elif kind == "mlp":
                 return f"bert.encoder.layer.{num}.output.dense"
             else:

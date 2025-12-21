@@ -404,8 +404,10 @@ def plot_trace_heatmap(result, savepdf=None, savepng=None, title=None, xlabel=No
         
         ax.invert_yaxis()
         ax.set_yticks([0.5 + i for i in range(len(differences))])
-        ax.set_xticks([0.5 + i for i in range(0, differences.shape[1] - 6, 5)])
-        ax.set_xticklabels(list(range(0, differences.shape[1] - 6, 5)))
+        num_layers = int(differences.shape[1])
+        step = 5 if num_layers > 24 else 2
+        ax.set_xticks([0.5 + i for i in range(0, num_layers, step)])
+        ax.set_xticklabels(list(range(0, num_layers, step)))
         
         # Dynamic font size based on number of tokens - handle extreme cases
         if num_tokens <= 15:
@@ -469,7 +471,8 @@ def plot_hidden_flow(
     mt,
     premise,
     hypothesis,
-    numerical_tokens=None,
+    premise_noise_tokens=None,
+    hypothesis_noise_tokens=None,
     samples=10,
     noise=0.1,
     uniform_noise=False,
@@ -480,6 +483,7 @@ def plot_hidden_flow(
     expect=None,
     target_label=None,
     debug_hooks=False,
+    debug_tokens=False,
 ):
     """
     Plot causal trace for entailment model.
@@ -489,7 +493,8 @@ def plot_hidden_flow(
         mt: EntailmentModelAndTokenizer instance
         premise: Premise sentence string
         hypothesis: Hypothesis sentence string
-        numerical_tokens: List of numerical tokens to focus on (optional)
+        premise_noise_tokens: List of tokens to corrupt in premise
+        hypothesis_noise_tokens: List of tokens to corrupt in hypothesis
         samples: Number of noise samples for corruption
         noise: Noise level for corruption
         uniform_noise: Whether to use uniform noise
@@ -503,7 +508,8 @@ def plot_hidden_flow(
         mt,
         premise,
         hypothesis,
-        numerical_tokens=numerical_tokens,
+        premise_noise_tokens=premise_noise_tokens,
+        hypothesis_noise_tokens=hypothesis_noise_tokens,
         samples=samples,
         noise=noise,
         uniform_noise=uniform_noise,
@@ -512,6 +518,7 @@ def plot_hidden_flow(
         expect=expect,
         target_label=target_label,
         debug_hooks=debug_hooks,
+        debug_tokens=debug_tokens,
     )
     plot_trace_heatmap(result, savepdf=savepdf, savepng=savepng)
 
